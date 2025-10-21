@@ -11,6 +11,247 @@ from typing import Any, List, Optional
 import yaml
 from hackathon_api import Datapoint, Protein, SmallMolecule
 
+class ProteinLigandFeatureExtractor:
+    """Extract physical features from protein-ligand complexes for pose prediction"""
+    
+    def __init__(self, pdb_file: str):
+        self.pdb_file = pdb_file
+        self.protein_atoms = []
+        self.ligand_atoms = []
+        self.protein_residues = []
+        
+    def parse_pdb(self):
+        """Parse PDB file to extract protein and ligand atoms"""
+        with open(self.pdb_file, 'r') as f:
+            for line in f:
+                if line.startswith('ATOM'):
+                    atom_info = self._parse_atom_line(line, is_protein=True)
+                    self.protein_atoms.append(atom_info)
+                    
+                    # Track unique residues
+                    res_id = (atom_info['chain'], atom_info['residue'], atom_info['res_num'])
+                    if res_id not in [r['id'] for r in self.protein_residues]:
+                        self.protein_residues.append({
+                            'id': res_id,
+                            'chain': atom_info['chain'],
+                            'residue': atom_info['residue'],
+                            'res_num': atom_info['res_num']
+                        })
+                        
+                elif line.startswith('HETATM'):
+                    atom_info = self._parse_atom_line(line, is_protein=False)
+                    self.ligand_atoms.append(atom_info)
+        
+    def _parse_atom_line(self, line: str, is_protein: bool) -> Dict:
+        """Parse ATOM or HETATM line"""
+        return {
+            'atom_num': int(line[6:11].strip()),
+            'atom_name': line[12:16].strip(),
+            'residue': line[17:20].strip(),
+            'chain': line[21].strip(),
+            'res_num': int(line[22:26].strip()),
+            'x': float(line[30:38].strip()),
+            'y': float(line[38:46].strip()),
+            'z': float(line[46:54].strip()),
+            'element': line[76:78].strip() if len(line) > 76 else line[12:16].strip()[0],
+            'is_protein': is_protein
+        }
+    
+    def calculate_distance(self, atom1: Dict, atom2: Dict) -> float:
+        """Calculate Euclidean distance between two atoms"""
+        return np.sqrt(
+            (atom1['x'] - atom2['x'])**2 +
+            (atom1['y'] - atom2['y'])**2 +
+            (atom1['z'] - atom2['z'])**2
+        )
+    
+    def extract_distance_features(self) -> Dict:
+        """Extract distance-based features"""
+        features = {
+            'min_distance': float('inf'),
+            'mean_distance': 0,
+            'distances_under_4A': 0,
+            'distances_under_5A': 0,
+            'distances_under_6A': 0,
+        }
+        
+        distances = []
+        for lig_atom in self.ligand_atoms:
+            for prot_atom in self.protein_atoms:
+                dist = self.calculate_distance(lig_atom, prot_atom)
+                distances.append(dist)
+                
+                if dist < features['min_distance']:
+                    features['min_distance'] = dist
+                    
+                if dist < 4.0:
+                    features['distances_under_4A'] += 1
+                if dist < 5.0:
+                    features['distances_under_5A'] += 1
+                if dist < 6.0:
+                    features['distances_under_6A'] += 1
+        
+        if distances:
+            features['mean_distance'] = np.mean(distances)
+            features['std_distance'] = np.std(distances)
+            features['median_distance'] = np.median(distances)
+        
+        return features
+    
+    def extract_contact_features(self, cutoff: float = 4.5) -> Dict:
+        """Extract contact features within cutoff distance"""
+        features = {
+            'total_contacts': 0,
+            'contacts_per_ligand_atom': 0,
+            'contacting_residues': set(),
+            'hydrophobic_contacts': 0,
+            'polar_contacts': 0,
+        }
+        
+        hydrophobic_residues = {'ALA', 'VAL', 'ILE', 'LEU', 'MET', 'PHE', 'TRP', 'PRO'}
+        polar_residues = {'SER', 'THR', 'CYS', 'TYR', 'ASN', 'GLN'}
+        
+        for lig_atom in self.ligand_atoms:
+            for prot_atom in self.protein_atoms:
+                dist = self.calculate_distance(lig_atom, prot_atom)
+                
+                if dist < cutoff:
+                    features['total_contacts'] += 1
+                    features['contacting_residues'].add(
+                        (prot_atom['chain'], prot_atom['res_num'], prot_atom['residue'])
+                    )
+                    
+                    if prot_atom['residue'] in hydrophobic_residues:
+                        features['hydrophobic_contacts'] += 1
+                    elif prot_atom['residue'] in polar_residues:
+                        features['polar_contacts'] += 1
+        
+        features['contacts_per_ligand_atom'] = (
+            features['total_contacts'] / len(self.ligand_atoms) 
+            if self.ligand_atoms else 0
+        )
+        features['num_contacting_residues'] = len(features['contacting_residues'])
+        
+        return features
+    
+    def extract_hydrogen_bond_features(self) -> Dict:
+        """Estimate potential hydrogen bonds"""
+        features = {
+            'potential_hbonds': 0,
+        }
+        
+        donor_elements = {'N', 'O'}
+        acceptor_elements = {'N', 'O'}
+        hbond_cutoff = 3.5
+        
+        for lig_atom in self.ligand_atoms:
+            if lig_atom['element'] in donor_elements or lig_atom['element'] in acceptor_elements:
+                for prot_atom in self.protein_atoms:
+                    if prot_atom['element'] in donor_elements or prot_atom['element'] in acceptor_elements:
+                        dist = self.calculate_distance(lig_atom, prot_atom)
+                        
+                        if dist < hbond_cutoff:
+                            features['potential_hbonds'] += 1
+        
+        return features
+    
+    def extract_geometric_features(self) -> Dict:
+        """Extract geometric features of the binding site"""
+        features = {}
+        
+        # Ligand center of mass
+        lig_coords = np.array([[a['x'], a['y'], a['z']] for a in self.ligand_atoms])
+        lig_com = np.mean(lig_coords, axis=0)
+        
+        # Find binding site residues (within 8Å of ligand COM)
+        binding_site_atoms = []
+        for prot_atom in self.protein_atoms:
+            prot_coord = np.array([prot_atom['x'], prot_atom['y'], prot_atom['z']])
+            dist = np.linalg.norm(prot_coord - lig_com)
+            if dist < 8.0:
+                binding_site_atoms.append(prot_atom)
+        
+        if binding_site_atoms:
+            binding_coords = np.array([[a['x'], a['y'], a['z']] for a in binding_site_atoms])
+            binding_com = np.mean(binding_coords, axis=0)
+            
+            features['ligand_binding_site_distance'] = np.linalg.norm(lig_com - binding_com)
+            features['binding_site_size'] = len(binding_site_atoms)
+            
+            features['pocket_span_x'] = np.max(binding_coords[:, 0]) - np.min(binding_coords[:, 0])
+            features['pocket_span_y'] = np.max(binding_coords[:, 1]) - np.min(binding_coords[:, 1])
+            features['pocket_span_z'] = np.max(binding_coords[:, 2]) - np.min(binding_coords[:, 2])
+            features['pocket_volume_approx'] = (
+                features['pocket_span_x'] * 
+                features['pocket_span_y'] * 
+                features['pocket_span_z']
+            )
+        
+        # Ligand size features
+        features['ligand_span_x'] = np.max(lig_coords[:, 0]) - np.min(lig_coords[:, 0])
+        features['ligand_span_y'] = np.max(lig_coords[:, 1]) - np.min(lig_coords[:, 1])
+        features['ligand_span_z'] = np.max(lig_coords[:, 2]) - np.min(lig_coords[:, 2])
+        features['ligand_volume_approx'] = (
+            features['ligand_span_x'] * 
+            features['ligand_span_y'] * 
+            features['ligand_span_z']
+        )
+        
+        return features
+    
+    def extract_atom_type_features(self) -> Dict:
+        """Extract features based on atom types"""
+        features = {
+            'ligand_heavy_atoms': len(self.ligand_atoms),
+            'ligand_carbon_count': 0,
+            'ligand_nitrogen_count': 0,
+            'ligand_oxygen_count': 0,
+            'ligand_sulfur_count': 0,
+            'ligand_other_count': 0,
+        }
+        
+        for atom in self.ligand_atoms:
+            elem = atom['element'].upper()
+            if elem == 'C':
+                features['ligand_carbon_count'] += 1
+            elif elem == 'N':
+                features['ligand_nitrogen_count'] += 1
+            elif elem == 'O':
+                features['ligand_oxygen_count'] += 1
+            elif elem == 'S':
+                features['ligand_sulfur_count'] += 1
+            else:
+                features['ligand_other_count'] += 1
+        
+        return features
+    
+    def extract_all_features(self, verbose: bool = False) -> Dict:
+        """Extract all features"""
+        self.parse_pdb()
+        
+        features = {}
+        
+        features.update(self.extract_distance_features())
+        contact_features = self.extract_contact_features()
+        contact_features.pop('contacting_residues', None)  # Remove set for serialization
+        features.update(contact_features)
+        
+        hbond_features = self.extract_hydrogen_bond_features()
+        features['potential_hbonds'] = hbond_features['potential_hbonds']
+        
+        features.update(self.extract_geometric_features())
+        features.update(self.extract_atom_type_features())
+        
+        if verbose:
+            print("\n=== Feature Summary ===")
+            for key, value in features.items():
+                if isinstance(value, float):
+                    print(f"{key}: {value:.3f}")
+                else:
+                    print(f"{key}: {value}")
+        
+        return features
+
 # ---------------------------------------------------------------------------
 # ---- Participants should modify these four functions ----------------------
 # ---------------------------------------------------------------------------
@@ -139,12 +380,97 @@ def post_process_protein_ligand(datapoint: Datapoint, input_dicts: List[dict[str
     Returns: 
         Sorted pdb file paths that should be used as your submission.
     """
+    
     # Collect all PDBs from all configurations
     all_pdbs = []
     for prediction_dir in prediction_dirs:
         config_pdbs = sorted(prediction_dir.glob(f"{datapoint.datapoint_id}_config_*_model_*.pdb"))
         all_pdbs.extend(config_pdbs)
     
+    print(f"Found {len(all_pdbs)} PDB files")
+    
+    # Collect confidence scores
+    all_scores = defaultdict(list)
+    pdb_to_scores = {}
+    
+    for prediction_dir in prediction_dirs:
+        config_confidence_scores = sorted(prediction_dir.glob(f"confidence_{datapoint.datapoint_id}_config_*_model_*.json"))
+        
+        for json_file in config_confidence_scores:
+            with open(json_file, 'r') as f:
+                data = json.load(f)
+            
+            # Extract model identifier from filename
+            model_id = json_file.stem.replace('confidence_', '')
+            
+            scores_dict = {}
+            
+            # Process top-level scalar metrics
+            for key in ['confidence_score', 'ptm', 'iptm', 'ligand_iptm',
+                       'protein_iptm', 'complex_plddt', 'complex_iplddt',
+                       'complex_pde', 'complex_ipde']:
+                if key in data:
+                    scores_dict[key] = data[key]
+                    all_scores[key].append(data[key])
+            
+            # Process chains_ptm
+            if 'chains_ptm' in data:
+                for chain_id, value in data['chains_ptm'].items():
+                    key_name = f'chains_ptm_{chain_id}'
+                    scores_dict[key_name] = value
+                    all_scores[key_name].append(value)
+            
+            # Process pair_chains_iptm
+            if 'pair_chains_iptm' in data:
+                for chain_i, inner_dict in data['pair_chains_iptm'].items():
+                    for chain_j, value in inner_dict.items():
+                        key_name = f'pair_chains_iptm_{chain_i}_{chain_j}'
+                        scores_dict[key_name] = value
+                        all_scores[key_name].append(value)
+            
+            pdb_to_scores[model_id] = scores_dict
+
+    # Extract structural features from each PDB
+    print("\nExtracting structural features from PDB files...")
+    all_data = []
+    
+    for pdb_path in all_pdbs:
+        print(f"Processing {pdb_path.name}...")
+        
+        # Extract model identifier
+        model_id = pdb_path.stem
+        
+        # Initialize feature extractor
+        try:
+            extractor = ProteinLigandFeatureExtractor(str(pdb_path))
+            structural_features = extractor.extract_all_features(verbose=False)
+        except Exception as e:
+            print(f"Warning: Could not extract features from {pdb_path.name}: {e}")
+            structural_features = {}
+        
+        # Combine confidence scores and structural features
+        row_data = {
+            'pdb_file': pdb_path.name,
+            'pdb_path': str(pdb_path),
+            'model_id': model_id
+        }
+        
+        # Add confidence scores
+        if model_id in pdb_to_scores:
+            row_data.update(pdb_to_scores[model_id])
+        
+        # Add structural features
+        row_data.update(structural_features)
+        
+        all_data.append(row_data)
+    
+    # Create DataFrame
+    df = pd.DataFrame(all_data)
+    
+    # Save DataFrame to CSV
+    output_csv = prediction_dirs[0].parent / f"{datapoint.datapoint_id}_analysis.csv"
+    df.to_csv(output_csv, index=False)
+   
     # Sort all PDBs and return their paths
     all_pdbs = sorted(all_pdbs)
     return all_pdbs

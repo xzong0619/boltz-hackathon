@@ -157,7 +157,7 @@ def align_structures(dataset, ligand_info, dataset_folder, submission_folder, te
             a.write(f"load {dataset_folder}/ground_truth/{gt_structure}, exp\n")
             a.write(f"sele not chain {keep_selection}\n")
             a.write(f"remove sele\n")
-            for model in range(5):
+            for model in range(50):
                 a.write(f"load {submission_folder}/{datapoint_id}/model_{model}.pdb, pred_{model}\n")
                 a.write(f"align pred_{model}, exp\n")
                 a.write(f"save {tempfolder}/{datapoint_id}_model_{model}.pdb, pred_{model}\n")
@@ -194,7 +194,7 @@ def calculate_rmsds(dataset, ligand_info, tempfolder):
             for ligand_i in range(len(ligand_info[datapoint['datapoint_id']])):
                 ligand = ligand_info[datapoint['datapoint_id']][ligand_i]
                 rmsds_ligand = []
-                for model in range(5):
+                for model in range(50):
                     pred_file = os.path.join(tempfolder, f"{datapoint['datapoint_id']}_model_{model}.pdb")
                     rmsds_ligand.append(get_ligand_rmsd(exp_file, pred_file, ligand["ccd"], "LIG"))
 
@@ -269,14 +269,16 @@ def save_results(rmsds, result_folder):
             "datapoint_id": key,
             "type": value["type"],
             "top1_rmsd": value["rmsd"][0],
-            "top5_mean_rmsd": np.mean(value["rmsd"][:5]),
-            "top5_min_rmsd": np.min(value["rmsd"][:5]),
-            "rmsd_under_2A": any(rmsd < 2.0 for rmsd in value["rmsd"][:5]),
-            "rmsd_model_0": value["rmsd"][0],
-            "rmsd_model_1": value["rmsd"][1],
-            "rmsd_model_2": value["rmsd"][2],
-            "rmsd_model_3": value["rmsd"][3],
-            "rmsd_model_4": value["rmsd"][4],
+            "top5_mean_rmsd": np.mean(value["rmsd"][:50]),
+            "top5_min_rmsd": np.min(value["rmsd"][:50]),
+            "rmsd_under_2A": any(rmsd < 2.0 for rmsd in value["rmsd"][:50]),
+            # "rmsd_model_0": value["rmsd"][0],
+            # "rmsd_model_1": value["rmsd"][1],
+            # "rmsd_model_2": value["rmsd"][2],
+            # "rmsd_model_3": value["rmsd"][3],
+            # "rmsd_model_4": value["rmsd"][4],
+            **{f"rmsd_model_{i}": value["rmsd"][i] for i in range(50)}
+            
         }
         for key, value in rmsds.items()
     ])

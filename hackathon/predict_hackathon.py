@@ -48,6 +48,7 @@ def prepare_protein_complex(datapoint_id: str, proteins: List[Protein], input_di
     cli_args = ["--diffusion_samples", "5"]
     return [(input_dict, cli_args)]
 
+
 def prepare_protein_ligand(datapoint_id: str, protein: Protein, ligands: list[SmallMolecule], input_dict: dict, msa_dir: Optional[Path] = None) -> List[tuple[dict, List[str]]]:
     """
     Prepare input dict and CLI args for a protein-ligand prediction.
@@ -77,8 +78,34 @@ def prepare_protein_ligand(datapoint_id: str, protein: Protein, ligands: list[Sm
     # will add contact constraints to the input_dict
 
     # Example: predict 5 structures
-    cli_args = ["--diffusion_samples", "5"]
-    return [(input_dict, cli_args)]
+    # cli_args = ["--diffusion_samples", "5"]
+    # return [(input_dict, cli_args)]
+
+    # Get the ligand ID from the input_dict
+    ligand_id = None
+    for seq_entry in input_dict["sequences"]:
+        if "ligand" in seq_entry:
+            ligand_id = seq_entry["ligand"]["id"]
+            break
+    
+    # Add affinity properties at the top level of input_dict
+    if ligand_id:
+        input_dict["properties"] = [
+            {
+                "affinity": {
+                    "binder": ligand_id
+                }
+            }
+        ]
+    
+    # Generate multiple diverse predictions with different sampling parameters
+    configs = []
+    
+    # Config 1: Default
+    cli_args_1 = ["--diffusion_samples", "50", "--step_scale", "1", "--seed", "42", "--write_embeddings"]
+    configs.append((input_dict.copy(), cli_args_1))
+
+    return configs
 
 def post_process_protein_complex(datapoint: Datapoint, input_dicts: List[dict[str, Any]], cli_args_list: List[list[str]], prediction_dirs: List[Path]) -> List[Path]:
     """
@@ -266,7 +293,7 @@ def _run_boltz_and_collect(datapoint) -> None:
     if not ranked_files:
         raise FileNotFoundError(f"No model files found for {datapoint.datapoint_id}")
 
-    for i, file_path in enumerate(ranked_files[:5]):
+    for i, file_path in enumerate(ranked_files[:]):
         target = subdir / (f"model_{i}.pdb" if file_path.suffix == ".pdb" else f"model_{i}{file_path.suffix}")
         shutil.copy2(file_path, target)
         print(f"Saved: {target}")

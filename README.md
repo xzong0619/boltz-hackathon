@@ -30,6 +30,9 @@ Parameters Explored:
 - Parameter 4: --recycling_steps (3, 5)
 
 ### Results
+Here are our results for the validation dataset using our selected configuration parameters.
+![alt text](/hackathon/allosteric_rmsd.png)
+![alt text](/hackathon/orthosteric_rmsd.png)
 
 ### Key Findings
 - Increasing the number of diffusion_samples and decreasing the step_scale both helps Boltz2 generate a more diverse set of poses, which leads to a higher probability of capturing the allosteric poses. We observe an improvement in RMSD for allosteric ligands after we changed these parameters.

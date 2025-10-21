@@ -21,11 +21,18 @@ To train and validate the ML model, we use the provided public set including 40 
 
 ## Approach 1: Parameter Optimization
 
-Parameters Explored
-- Parameter 1: --diffusion_samples
-- Parameter 2: --step_scale
+### Experiment Details
+
+Parameters Explored:
+- Parameter 1: --diffusion_samples (5, 50)
+- Parameter 2: --step_scale (1, 1.5, 2)
 - Parameter 3: --use_potentials
-- Parameter 4: --recycling_steps
+- Parameter 4: --recycling_steps (3, 5)
+
+### Results
+
+### Key Findings
+- Increasing the number of diffusion_samples and decreasing the step_scale both helps Boltz2 generate a more diverse set of poses, which leads to a higher probability of capturing the allosteric poses. We observe an improvement in RMSD for allosteric ligands after we changed these parameters.
 
 ## Approach 2: ML Model for Reranking
 
@@ -36,13 +43,9 @@ Features we included in the ML model:
 We think including these features would capture the physics between protein-ligand binding and serve well for our ML model.
 
 
-## Key Findings
-- Increasing the number of diffusion_samples and decreasing the step_scale both helps Boltz2 generate a more diverse set of poses, which leads to a higher probability of capturing the allosteric poses. We observe an improvement in RMSD for allosteric ligands after we changed these parameters.
-- Finding 2
-- Finding 3
-
 ## Future Directions
-
+- Tuning parameters and finding best parameters for different protein targets can lead to very different predicted poses. It'd be valuable if we can have a guidebook or tutorial on suggested parameters for different systems.
+- Due to the tight time limitation for this hackathon, we were only able to train our ML model once and we didn't get results for our second approach yet. However, we do believe this approach is very promising and with more time investigated, this will help us better understand the influential factors for allosteric ligands and build a ML model to better predict allosteric poses.
 
 
 ## Team Members

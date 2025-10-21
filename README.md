@@ -3,7 +3,7 @@
 ## Challenge and Motivation
 
 ## Our Approach
-We explored two complementary strategies to improve Boltz2's performance on allosteric ligand prediction:
+We explored two complementary strategies to improve Boltz2's performance on allosteric ligand prediction
 
 ### 1. Parameter Optimization
 
@@ -29,10 +29,12 @@ Parameters Explored
 
 ## Approach 2: ML Model for Reranking
 
+Features we included in the ML model:
+- Confidence scores from Boltz2 outputs
+- Physics-based features extracted from predicted pdb file: number of contacting residues, potential hydrogen bonds, binding site size, estimated binding pocket volume, chemical properties ligands etc
 
+We think including these features would capture the physics between protein-ligand binding and serve well for our ML model.
 
-
-## Results
 
 ## Key Findings
 - Increasing the number of diffusion_samples and decreasing the step_scale both helps Boltz2 generate a more diverse set of poses, which leads to a higher probability of capturing the allosteric poses. We observe an improvement in RMSD for allosteric ligands after we changed these parameters.

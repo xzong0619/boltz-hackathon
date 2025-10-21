@@ -35,11 +35,12 @@ Parameters Explored
 ## Results
 
 ## Key Findings
-- Finding 1
+- Increasing the number of diffusion_samples and decreasing the step_scale both helps Boltz2 generate a more diverse set of poses, which leads to a higher probability of capturing the allosteric poses. We observe an improvement in RMSD for allosteric ligands after we changed these parameters.
 - Finding 2
 - Finding 3
 
 ## Future Directions
+
 
 
 ## Team Members
